@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jan  1 15:44:56 2024
+Created in 2024
 
-@author: quant
+@author: Quant Galore
 """
 
 from datetime import timedelta, datetime
@@ -17,12 +17,18 @@ import seaborn as sns
 import sqlalchemy
 import mysql.connector
 import pytz
+import sys
 
 polygon_api_key = "KkfCQ7fsZnx0yK4bhX9fD81QplTh0Pf3"
 engine = sqlalchemy.create_engine('mysql+mysqlconnector://username:password@database-host-name:3306/database-name')
 calendar = get_calendar("NYSE")
 
 date = datetime.today().strftime("%Y-%m-%d")
+
+trading_days = ["Monday", "Tuesday", "Wednesday"]
+
+if datetime.today().strftime("%A") not in trading_days:
+    sys.exit()
 
 ticker_data = pd.read_sql("weekly_option_tickers", con=engine)
 tickers = np.array(ticker_data["tickers"])
@@ -123,11 +129,8 @@ for underlying_ticker in tickers:
         
 
 term_structures = pd.concat(term_structure_data_list).sort_values(by="slope", ascending = True)
-term_structures = term_structures[term_structures["atm_strike"] >= 10]
-term_structures = term_structures[term_structures["straddle_volume"] >= 50]
 term_structures["implied_breakeven_differential"] = term_structures["implied_move"] - term_structures["minimum_theo_change"]
-term_structures = term_structures[(term_structures["implied_breakeven_differential"] > 0.24) & (term_structures["slope"] < 0) & (term_structures["minimum_theo_change"] < 10) & (term_structures["slope"] >= -5)]
-term_structures = term_structures.sort_values(by="straddle_price", ascending =True).head(5)
+term_structures = term_structures[(term_structures["atm_strike"] >= 10) & (term_structures["implied_breakeven_differential"] > 0.24) & (term_structures["slope"] < 0) & (term_structures["slope"] >= -5) & (term_structures["minimum_theo_change"] < 10) & (term_structures["straddle_volume"] >= 100) & (term_structures["straddle_price"] < 5)].sort_values(by="straddle_price", ascending =True).head(10)
 term_structures["date"] = date
 
 subject_string = f"Optimal Straddle Contracts for {pd.to_datetime(date).strftime('%A')}, {date}"

@@ -69,17 +69,18 @@ def put_implied_vol(S, K, t, r, option_price):
 
 polygon_api_key = "KkfCQ7fsZnx0yK4bhX9fD81QplTh0Pf3"
 calendar = get_calendar("NYSE")
+
 engine = sqlalchemy.create_engine('mysql+mysqlconnector://username:password@database-host-name:3306/database-name')
 
 tz = pytz.timezone("GMT")
 
-dates = calendar.schedule(start_date = "2023-08-01", end_date = (datetime.today()-timedelta(days=1))).index.strftime("%Y-%m-%d").values
+dates = calendar.schedule(start_date = "2023-06-01", end_date = (datetime.today()-timedelta(days=1))).index.strftime("%Y-%m-%d").values
 
 ticker_data = pd.read_sql("weekly_option_tickers", con=engine)
 
 # If you just want a random selection of 100 tickers to save time, keep the below line unchanged
 # If you'd like to try ALL tickers, comment out the below line with a # and uncomment the line below it by removing the #
-tickers = np.array(ticker_data["tickers"].sample(100).values)
+tickers = np.array(ticker_data["tickers"].values)
 # tickers = np.array(ticker_data["tickers"].values)
 
 vol_structures = []
@@ -220,6 +221,8 @@ for date in dates:
             continue
     
 historical_curve = pd.concat(vol_structures)
+engine = sqlalchemy.create_engine('mysql+mysqlconnector://username:password@database-host-name:3306/database-name')
+historical_curve.to_sql("historical_surface", con = engine, if_exists = "replace")
 
 days = historical_curve["date"].drop_duplicates().values
 trades = []
@@ -228,9 +231,11 @@ for day in days:
     
     day_data_original = historical_curve[historical_curve["date"] == day].copy()
     
-    day_data = day_data_original[(day_data_original["implied_breakeven_differential"] > 0.24) & (day_data_original["slope"] < 0) & (day_data_original["slope"] >= -5) & (day_data_original["minimum_theo_change"] < 10)  & (day_data_original["straddle_price"] < 10) & (round(day_data_original["days_to_expiration_0"]) <= 3)].sort_values(by="straddle_price", ascending=True).head(5)
+    port_size = 10
     
-    if len(day_data) > 0:
+    day_data = day_data_original[(day_data_original["atm_strike_0"] >= 10) & (day_data_original["implied_breakeven_differential"] > 0.24) & (day_data_original["slope"] < 0) & (day_data_original["slope"] >= -5) & (day_data_original["minimum_theo_change"] < 10)  & (day_data_original["straddle_price"] < 5) & (round(day_data_original["days_to_expiration_0"]) > 1) & (round(day_data_original["days_to_expiration_0"]) <= 4) & (day_data_original["straddle_volume"] >= 100)].sort_values(by="straddle_price", ascending=True).head(port_size)
+    
+    if len(day_data) >= port_size:
         cost = day_data["straddle_price"].sum()
         gross_pnl = day_data["gross_pnl"].sum()
         total_return = round(gross_pnl/cost,2) * 100
@@ -243,14 +248,19 @@ for day in days:
         continue
     
 all_trades = pd.concat(trades)
+all_trades["date"] = pd.to_datetime(all_trades["date"])
+all_trades = all_trades.set_index("date")
+size = 2000
+all_trades["cons"] = (size / (all_trades["cost"]*100)).astype(int)
+all_trades["gross_pnl"] = all_trades["gross_pnl"] * all_trades["cons"]
 
-all_trades["capital"] = (all_trades["gross_pnl"].cumsum() * 100) + 1000
+all_trades["capital"] = (all_trades["gross_pnl"].cumsum() * 100) + size
 
 plt.figure(dpi=600)
 plt.xticks(rotation=45)
 plt.xlabel("Date")
 plt.ylabel("Capital")
-plt.title("Growth of $1,000")
-plt.plot(pd.to_datetime(all_trades["date"]), all_trades["capital"], linestyle='-', marker='o', color='skyblue', linewidth=2, markersize=6)
+plt.title(f"Growth of ${size}")
+plt.plot(all_trades.index, all_trades["capital"], linestyle='-', marker='o', color='skyblue', linewidth=2, markersize=6)
 plt.grid(True, linestyle='--', alpha=0.6)
 plt.show()
